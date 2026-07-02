@@ -60,7 +60,7 @@ def _largest_cc(mask):
     return lbl == k, int(sizes.max())
 
 
-def brain_mask(vol, head, lo=0.25, hi=0.85, erode_r=5, grow=7):
+def brain_mask(vol, head, lo=0.22, hi=0.90, erode_r=5, grow=8, close_r=3):
     """
     Skull-strip a T1 volume with pure morphology (no FSL/FreeSurfer/ANTs).
 
@@ -71,10 +71,17 @@ def brain_mask(vol, head, lo=0.25, hi=0.85, erode_r=5, grow=7):
         intensity bound removes the orbits, which are otherwise the main path
         by which the brain leaks into the face.
 
-    So we keep a GM/WM intensity *band* (fat excluded), erode to a compact core
-    that is unambiguously brain, keep the largest component, then geodesically
-    reconstruct the brain back within the band. `lo`/`hi` are fractions of the
-    99th-percentile head intensity.
+    Steps:
+      1. Keep a GM/WM intensity *band* (fat excluded). `lo`/`hi` are fractions
+         of the 99th-percentile head intensity.
+      2. Erode to a compact core that is unambiguously brain; keep the largest
+         connected component (severs the scalp, which is a thin shell).
+      3. Geodesically dilate the core back within the band to recover the whole
+         cortex.
+      4. Close + fill so the mask reaches the *pial envelope* (the sulcal CSF is
+         bridged and the interior is solid). Without this the mask dips into
+         every sulcus, which both under-counts the brain and makes the surface
+         look chunky. Result ≈ 1360 cc for a normal adult brain.
     """
     p99 = np.percentile(vol[head], 99)
     band = ((vol > lo * p99) & (vol < hi * p99)) & head
@@ -85,15 +92,17 @@ def brain_mask(vol, head, lo=0.25, hi=0.85, erode_r=5, grow=7):
     brain = core.copy()
     for _ in range(grow):                      # geodesic dilation within band
         brain = ndi.binary_dilation(brain, morphology.ball(1)) & band
-    brain = ndi.binary_closing(brain, morphology.ball(3))
-    brain = ndi.binary_fill_holes(brain)
+
+    brain = ndi.binary_closing(brain, morphology.ball(close_r))   # bridge sulci
+    brain = ndi.binary_fill_holes(brain)                          # solid interior
+    brain = brain & head
     brain, _ = _largest_cc(brain)
     return brain
 
 
-def mask_to_mesh(mask, spacing, step=1, smooth_iter=10):
+def mask_to_mesh(mask, spacing, step=1, smooth_iter=10, sigma=0.8):
     """Marching cubes on a binary mask -> smoothed trimesh (coords in mm)."""
-    vol = ndi.gaussian_filter(mask.astype(np.float32), 0.8)
+    vol = ndi.gaussian_filter(mask.astype(np.float32), sigma)
     verts, faces, normals, _ = measure.marching_cubes(
         vol, level=0.5, spacing=tuple(spacing), step_size=step
     )
@@ -138,8 +147,8 @@ def main():
     np.save(f"{DATA}/head_mask.npy", head)
 
     print("Marching cubes -> meshes ...")
-    skin_mesh = mask_to_mesh(head, spacing, step=2, smooth_iter=12)
-    brain_mesh = mask_to_mesh(brain, spacing, step=1, smooth_iter=15)
+    skin_mesh = mask_to_mesh(head, spacing, step=2, smooth_iter=12, sigma=0.8)
+    brain_mesh = mask_to_mesh(brain, spacing, step=1, smooth_iter=28, sigma=1.3)
 
     print("Exporting ...")
     export(skin_mesh, "skin", [230, 200, 180, 255])

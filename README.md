@@ -69,8 +69,10 @@ out/{brain,skin}.{stl,glb}     +  scripts/render.py → preview PNGs
   brain and scalp), and orbital/scalp fat is *brighter* than brain tissue. We
   keep a gray/white‑matter intensity **band** (fat excluded, which removes the
   orbits — the usual leak path), erode to a compact brain core, keep the largest
-  component, then geodesically grow it back within the band. Result ≈ 1090 cc
-  with the cerebrum, cerebellum and brainstem and **no face leak**.
+  component, geodesically grow it back within the band, then **close + fill to
+  the pial envelope** so the mask reaches the full cortical extent instead of
+  dipping into every sulcus. Result ≈ 1360 cc — a complete adult brain with the
+  cerebrum, cerebellum and brainstem and **no face leak**.
 
 Segmentation quality was verified against the source slices:
 
