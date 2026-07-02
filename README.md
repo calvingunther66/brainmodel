@@ -60,19 +60,27 @@ data/volume_raw.npy  (208×512×512, 1.0×0.5×0.5 mm)
 out/{brain,skin}.{stl,glb}     +  scripts/render.py → preview PNGs
 ```
 
-### Segmentation (no FSL/FreeSurfer/ANTs required)
+### Segmentation
 
 * **Head / skin surface** — threshold the head against air, fill, keep the
   largest component. Clean and robust (traces the face, skull and neck).
-* **Brain surface** — a pure‑morphology skull‑strip that exploits two facts of
-  T1 imaging: the cortical skull is a dark signal void (a natural gap between
-  brain and scalp), and orbital/scalp fat is *brighter* than brain tissue. We
-  keep a gray/white‑matter intensity **band** (fat excluded, which removes the
-  orbits — the usual leak path), erode to a compact brain core, keep the largest
-  component, geodesically grow it back within the band, then **close + fill to
-  the pial envelope** so the mask reaches the full cortical extent instead of
-  dipping into every sulcus. Result ≈ 1360 cc — a complete adult brain with the
-  cerebrum, cerebellum and brainstem and **no face leak**.
+* **Brain surface** — a **learned skull‑strip** using
+  [deepbet](https://github.com/wwu-mmll/deepbet), a lightweight 3‑D U‑Net.
+  Given the isotropic volume wrapped in a correctly oriented NIfTI (the affine
+  is built from the DICOM direction cosines recorded by `build_volume.py`), it
+  extracts the whole brain out to the **pial surface** — capturing the superior
+  cortex all the way to the vertex — and cleanly seals the skull base (orbits,
+  foramen magnum) where the brain otherwise leaks into the face. Result
+  ≈ 1710 cc for the full pial‑surface extraction (cerebrum, cerebellum and
+  brainstem, no face leak). It runs on CPU in a few seconds.
+
+  Purely morphological skull‑strips (intensity band → erode → geodesic regrow →
+  close/fill) are intrinsically caught between two failures here: staying inside
+  the tissue band clips the thin crown gyri (which are isolated by CSF‑filled
+  sulci), while flooding across the sulci leaks through the skull base. The
+  learned model uses a shape prior to get both ends right. A pure‑morphology
+  fallback (`brain_mask()` in `reconstruct.py`) is still included and used
+  automatically if torch/deepbet are unavailable.
 
 Segmentation quality was verified against the source slices:
 
@@ -93,12 +101,16 @@ Segmentation quality was verified against the source slices:
 ## Reproduce
 
 ```bash
-pip install pydicom numpy scipy scikit-image trimesh matplotlib
+pip install pydicom numpy scipy scikit-image trimesh matplotlib nibabel
+pip install torch deepbet          # learned skull-strip (CPU wheel is fine);
+                                   # weights auto-download from the deepbet repo.
+                                   # Omit these to use the morphological fallback.
 # 1. DICOMs are pulled from Google Drive and decoded into data/dicom_staging/SER2/
 #    (see scripts/harvest.py — bridges the Drive MCP download tool).
-python3 scripts/build_volume.py     # -> data/volume_raw.npy + spacing.npy
+python3 scripts/build_volume.py     # -> data/volume_raw.npy + spacing.npy + dirs.npy
 python3 scripts/reconstruct.py      # -> out/{brain,skin}.{stl,glb}
 python3 scripts/render.py           # -> out/*.png previews
+node    scripts/shoot.mjs           # -> out/viewer_*.png  (headless viewer shots)
 ```
 
 The raw DICOM data and reconstructed volumes live under `data/`, which is

@@ -7,13 +7,19 @@ Pipeline:
   2. Resample to isotropic 1 mm voxels so proportions and meshes are correct.
   3. Segment two surfaces:
        - skin / head surface  (simple intensity threshold on the head vs. air)
-       - brain surface        (morphological skull-strip of the T1 volume)
-  4. Marching cubes -> triangle meshes, exported as STL / PLY / glB (mm units).
+       - brain surface        (learned skull-strip via deepbet, with a
+                               pure-morphology fallback)
+  4. Marching cubes -> triangle meshes, exported as STL / glB (mm units).
 
-Everything is deterministic and depends only on numpy / scipy / scikit-image /
-trimesh, so it runs headless without FSL/FreeSurfer/ANTs.
+The brain extraction prefers a learned model (deepbet, a lightweight 3D U-Net):
+it captures the whole cortex out to the pial surface -- including the vertex --
+and cleanly seals the skull base (orbits, foramen magnum) that intensity-only
+morphology cannot. If torch / deepbet / its weights are unavailable, it falls
+back to the deterministic morphological skull-strip below, which needs only
+numpy / scipy / scikit-image.
 """
 import os
+import urllib.request
 import numpy as np
 from scipy import ndimage as ndi
 from skimage import measure, filters, morphology
@@ -22,6 +28,14 @@ import trimesh
 DATA = "/home/user/brainmodel/data"
 OUT = "/home/user/brainmodel/out"
 os.makedirs(OUT, exist_ok=True)
+
+# deepbet ships its traced weights out-of-band; fetch them from the repo on
+# first run (raw.githubusercontent.com is reachable; the PyTorch index is not,
+# but the CPU torch wheel installs fine from PyPI).
+DEEPBET_WEIGHTS = {
+    "model.pt": "https://raw.githubusercontent.com/wwu-mmll/deepbet/main/data/models/model.pt",
+    "bbox_model.pt": "https://raw.githubusercontent.com/wwu-mmll/deepbet/main/data/models/bbox_model.pt",
+}
 
 
 def load_volume():
@@ -100,6 +114,50 @@ def brain_mask(vol, head, lo=0.22, hi=0.90, erode_r=5, grow=8, close_r=3):
     return brain
 
 
+def _ensure_deepbet_weights():
+    """deepbet expects model.pt / bbox_model.pt under <site-packages>/data/models."""
+    import deepbet
+    models_dir = os.path.join(
+        os.path.dirname(os.path.dirname(deepbet.__file__)), "data", "models"
+    )
+    os.makedirs(models_dir, exist_ok=True)
+    for name, url in DEEPBET_WEIGHTS.items():
+        dst = os.path.join(models_dir, name)
+        if not os.path.exists(dst) or os.path.getsize(dst) < 100_000:
+            print(f"  fetching deepbet weight {name} ...")
+            urllib.request.urlretrieve(url, dst)
+    return models_dir
+
+
+def dl_brain_mask(vol):
+    """
+    Learned skull-strip with deepbet (3D U-Net). Returns a boolean brain mask
+    the same shape as `vol`, or raises if torch/deepbet/weights are unavailable.
+
+    The network is trained in canonical RAS orientation, so we wrap the volume
+    in a NIfTI carrying the true patient-space affine (from data/dirs.npy, the
+    LPS direction of each voxel axis recorded by build_volume). Without a correct
+    affine the extraction is mis-oriented and fails.
+    """
+    import nibabel as nib
+    from deepbet.bet import BrainExtraction
+
+    _ensure_deepbet_weights()
+
+    dirs = np.load(f"{DATA}/dirs.npy")          # LPS unit vectors: axis0, axis1, axis2
+    lps_to_ras = np.array([-1.0, -1.0, 1.0])    # negate L->R and P->A
+    R = (dirs * lps_to_ras).T                   # columns = RAS dir of each voxel axis
+    affine = np.eye(4)
+    affine[:3, :3] = R                          # 1 mm isotropic
+    affine[:3, 3] = -R @ (np.array(vol.shape) / 2.0)   # centre the origin
+
+    img = nib.Nifti1Image(vol.astype(np.float32), affine)
+    bet = BrainExtraction(no_gpu=True)
+    _, mask, _ = bet.run(img)
+    m = np.asarray(mask.dataobj).astype(bool)
+    return m[..., 0] if m.ndim == 4 else m
+
+
 def mask_to_mesh(mask, spacing, step=1, smooth_iter=10, sigma=0.8):
     """Marching cubes on a binary mask -> smoothed trimesh (coords in mm)."""
     vol = ndi.gaussian_filter(mask.astype(np.float32), sigma)
@@ -141,14 +199,21 @@ def main():
     print(f"  head voxels: {int(head.sum()):,}")
 
     print("Skull-stripping brain ...")
-    brain = brain_mask(vol, head)
+    try:
+        brain = dl_brain_mask(vol) & head
+        brain, _ = _largest_cc(brain)
+        print(f"  method: deepbet (learned U-Net)")
+    except Exception as e:
+        print(f"  deepbet unavailable ({type(e).__name__}: {e}); "
+              f"falling back to morphology")
+        brain = brain_mask(vol, head)
     print(f"  brain voxels: {int(brain.sum()):,}")
     np.save(f"{DATA}/brain_mask.npy", brain)
     np.save(f"{DATA}/head_mask.npy", head)
 
     print("Marching cubes -> meshes ...")
     skin_mesh = mask_to_mesh(head, spacing, step=2, smooth_iter=12, sigma=0.8)
-    brain_mesh = mask_to_mesh(brain, spacing, step=1, smooth_iter=28, sigma=1.3)
+    brain_mesh = mask_to_mesh(brain, spacing, step=1, smooth_iter=15, sigma=0.9)
 
     print("Exporting ...")
     export(skin_mesh, "skin", [230, 200, 180, 255])

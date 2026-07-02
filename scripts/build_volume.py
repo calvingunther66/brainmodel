@@ -48,10 +48,16 @@ def main():
     print(f"spacing(mm) : dz={dz:.3f}  dy={ps[0]:.3f}  dx={ps[1]:.3f}")
     print(f"extent(mm)  : {len(ds) * dz:.0f} x {vol.shape[1] * ps[0]:.0f} x {vol.shape[2] * ps[1]:.0f}")
 
+    # Record the patient-space direction of each voxel axis (LPS unit vectors),
+    # so reconstruct.py can build a correct NIfTI affine for learned tools.
+    #   axis0 = slice normal, axis1 = column dir (rows), axis2 = row dir (cols)
+    dirs = np.array([normal, o[3:], o[:3]], float)
+
     os.makedirs(DATA, exist_ok=True)
     np.save(os.path.join(DATA, "volume_raw.npy"), vol)
     np.save(os.path.join(DATA, "spacing.npy"), np.array([dz, ps[0], ps[1]]))
-    print("saved data/volume_raw.npy + data/spacing.npy")
+    np.save(os.path.join(DATA, "dirs.npy"), dirs)
+    print("saved data/volume_raw.npy + data/spacing.npy + data/dirs.npy")
 
 
 if __name__ == "__main__":
