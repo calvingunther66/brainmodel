@@ -1,0 +1,8 @@
+# Protected health information — raw DICOM + reconstructed volumes stay local only
+data/
+
+# Python
+__pycache__/
+*.pyc
+
+# Vendored three.js is committed (see out/vendor); nothing else here

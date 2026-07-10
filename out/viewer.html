@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Calvin Gunther — 3D Brain Model (T1 MP-RAGE)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0d12; color: #e8e8ec;
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif; overflow: hidden; }
+  #app { position: fixed; inset: 0; }
+  #panel { position: fixed; top: 14px; left: 14px; z-index: 10;
+    background: rgba(20,24,32,.82); border: 1px solid #2a3140; border-radius: 10px;
+    padding: 14px 16px; width: 232px; backdrop-filter: blur(6px); }
+  #panel h1 { font-size: 14px; margin: 0 0 2px; }
+  #panel .sub { font-size: 11px; color: #8b93a4; margin: 0 0 12px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 9px 0; font-size: 13px; }
+  .row label { flex: 1; }
+  input[type=range] { width: 108px; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  #hint { position: fixed; bottom: 12px; left: 14px; font-size: 11px; color: #6b7284; z-index: 10; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="panel">
+  <h1>3D Brain Model</h1>
+  <p class="sub">Reconstructed from SAG 3D T1 MP-RAGE · 208 slices · 1&nbsp;mm iso</p>
+  <div class="row"><span class="sw" style="background:#d8b9c0"></span>
+    <label for="brain">Brain surface</label>
+    <input type="checkbox" id="brain" checked></div>
+  <div class="row"><span class="sw" style="background:#e6c8a8"></span>
+    <label for="skin">Head / skin</label>
+    <input type="checkbox" id="skin"></div>
+  <div class="row"><label for="op">Skin opacity</label>
+    <input type="range" id="op" min="0" max="100" value="35"></div>
+  <div class="row"><label for="spin">Auto-rotate</label>
+    <input type="checkbox" id="spin" checked></div>
+</div>
+<div id="hint">drag to rotate · scroll to zoom · right-drag to pan</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three.module.js",
+  "three/addons/": "./vendor/addons/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const app = document.getElementById('app');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0d12);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 5000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+app.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 1.2;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x30384a, 1.2));
+scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+// headlights attached to the camera so the model is lit wherever it sits in MRI space
+scene.add(camera);
+const head1 = new THREE.PointLight(0xffffff, 1.6, 0, 0); head1.position.set(0.3, 0.4, 1);
+const head2 = new THREE.PointLight(0xbcd0ff, 0.7, 0, 0); head2.position.set(-1, -0.5, 0.5);
+camera.add(head1); camera.add(head2);
+
+const materials = {
+  brain: new THREE.MeshStandardMaterial({ color: 0xd8b9c0, roughness: 0.75, metalness: 0.0,
+    side: THREE.DoubleSide, flatShading: false }),
+  skin:  new THREE.MeshStandardMaterial({ color: 0xe6c8a8, roughness: 0.9, metalness: 0.0,
+    side: THREE.DoubleSide, transparent: true, opacity: 0.35, depthWrite: false })
+};
+const meshes = {};
+const loader = new GLTFLoader();
+
+function add(name, file) {
+  loader.load(file, (gltf) => {
+    const g = new THREE.Group();
+    gltf.scene.traverse(o => { if (o.isMesh) {
+      o.geometry.computeVertexNormals();   // GLB ships without NORMAL attribute
+      o.material = materials[name]; g.add(o.clone());
+    }});
+    scene.add(g); meshes[name] = g; meshesVisibility(); frame();
+  });
+}
+add('brain', 'brain.glb');
+add('skin', 'skin.glb');
+
+function meshesVisibility() {
+  if (meshes.brain) meshes.brain.visible = document.getElementById('brain').checked;
+  if (meshes.skin)  meshes.skin.visible  = document.getElementById('skin').checked;
+}
+
+let framed = false;
+function frame() {
+  const box = new THREE.Box3();
+  for (const k in meshes) box.expandByObject(meshes[k]);   // meshes share MRI world coords
+  if (box.isEmpty()) return;
+  const c = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3()).length();
+  controls.target.copy(c);
+  if (!framed) { camera.position.set(c.x, c.y, c.z + size * 1.05); framed = true; }
+  camera.near = size / 100; camera.far = size * 10; camera.updateProjectionMatrix();
+}
+
+document.getElementById('brain').onchange = meshesVisibility;
+document.getElementById('skin').onchange = meshesVisibility;
+document.getElementById('op').oninput = e => { materials.skin.opacity = e.target.value/100; };
+document.getElementById('spin').onchange = e => { controls.autoRotate = e.target.checked; };
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+(function loop(){ requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+</script>
+</body>
+</html>
