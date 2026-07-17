@@ -87,6 +87,15 @@ FreeSurfer. Convert the FreeSurfer surfaces to GLB/STL for the viewer. This is t
 standard, anatomically faithful way to get a folded brain surface — the folds come from a
 model trained to reproduce them, not from smoothing a blob.
 
+> **Status — partially delivered.** FastSurfer's **ASEGDKT segmentation** (seg‑only,
+> CPU, minutes) is now a first‑class engine (`--engine fastsurfer`): a topologically
+> clean brain mask (1437 cc vs deepbet's 1697 cc envelope; Dice 0.92 agreement = a free
+> two‑engine QC signal) plus a DKT cortical parcellation that colors the surface by region
+> (`scripts/parcellate_surface.py`, `out/brain_parcellated.glb`, viewer "Parcellation" toggle).
+> The full **`recon-surf`** stage (true `?h.pial`/`?h.white` surfaces) still needs a
+> FreeSurfer license + GPU/hours and remains open — that is what would finally clean up the
+> fine cerebellar‑folia / sagittal‑sinus regions the interim intensity iso‑surface renders busily.
+
 - Output to keep: `?h.pial` (glossy folded cortex), optionally `?h.white` and the
   `aparc` parcellation for a colored‑lobes view.
 - Deliverable: `pial.glb` (both hemispheres merged), `pial.stl`, and a viewer toggle for

@@ -126,14 +126,69 @@ def synthstrip_extract(vol, spacing, dirs, head=None):
 
 
 # --------------------------------------------------------------------------- #
+# 4. FastSurfer (deep-learning FreeSurfer). Seg-only (ASEGDKT) runs on CPU in
+#    minutes and yields a topologically clean whole-brain segmentation + DKT
+#    cortical parcellation -- tighter to real brain tissue than an envelope
+#    skull-strip, and the parcellation can color the surface (see
+#    scripts/parcellate_surface.py). Needs FASTSURFER_HOME + downloaded VINN
+#    checkpoints. The full pial/white `recon-surf` stage needs FreeSurfer + a
+#    license and hours of CPU, so it is out of scope for the auto path.
+# --------------------------------------------------------------------------- #
+def fastsurfer_available():
+    home = os.environ.get("FASTSURFER_HOME")
+    return bool(home) and os.path.exists(
+        os.path.join(home, "FastSurferCNN", "run_prediction.py"))
+
+
+def fastsurfer_extract(vol, spacing, dirs, head=None, keep_seg=None):
+    """
+    Skull-strip via FastSurfer ASEGDKT seg-only. Runs the CNN on the volume,
+    then resamples the segmentation's brain mask back onto the input grid using
+    the patient-space affines. If `keep_seg` (a path) is given, the conformed
+    parcellation is copied there for later surface coloring.
+    """
+    import nibabel as nib
+    from nibabel.processing import resample_from_to
+    from .geometry import affine_from_dirs
+
+    home = os.environ["FASTSURFER_HOME"]
+    with tempfile.TemporaryDirectory() as td:
+        in_p = os.path.join(td, "t1.nii.gz")
+        nib.save(to_nifti(vol, dirs, spacing), in_p)
+        sd, sid = os.path.join(td, "subj"), "s"
+        seg_p = os.path.join(sd, sid, "mri", "aparc.DKTatlas+aseg.deep.mgz")
+        env = dict(os.environ, PYTHONPATH=home)
+        subprocess.run(
+            ["python3", os.path.join(home, "FastSurferCNN", "run_prediction.py"),
+             "--t1", in_p, "--sid", sid, "--sd", sd,
+             "--asegdkt_segfile", seg_p, "--device", "cpu",
+             "--threads", str(os.cpu_count() or 4), "--vox_size", "1.0"],
+            check=True, capture_output=True, env=env)
+        seg_img = nib.load(seg_p)
+        if keep_seg:
+            nib.save(seg_img, keep_seg)
+        target_aff = affine_from_dirs(dirs, spacing, vol.shape)
+        mask_img = nib.Nifti1Image(
+            (np.asarray(seg_img.dataobj) > 0).astype(np.uint8), seg_img.affine)
+        res = resample_from_to(mask_img, (vol.shape, target_aff), order=0)
+        m = np.asarray(res.dataobj).astype(bool)
+    if head is not None:
+        m &= head
+    m, _ = largest_component(m)
+    return m, "fastsurfer"
+
+
+# --------------------------------------------------------------------------- #
 # Registry + dispatcher
 # --------------------------------------------------------------------------- #
 _ENGINES = {
+    "fastsurfer": (fastsurfer_available, fastsurfer_extract),
     "synthstrip": (synthstrip_available, synthstrip_extract),
     "deepbet": (deepbet_available, deepbet_extract),
     "morphology": (lambda: True, morphology_extract),
 }
-# Priority order for "auto": most contrast-robust first.
+# Priority order for "auto": most contrast-robust / accurate first. FastSurfer
+# is only reached here when FASTSURFER_HOME is configured.
 _AUTO_ORDER = ["synthstrip", "deepbet", "morphology"]
 
 

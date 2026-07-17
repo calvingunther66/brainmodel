@@ -23,7 +23,7 @@ def build_parser():
     r.add_argument("input", help="DICOM dir / series dir / .nii(.gz)")
     r.add_argument("-o", "--output", required=True, help="output directory")
     r.add_argument("--engine", default="auto",
-                   choices=["auto", "synthstrip", "deepbet", "morphology"])
+                   choices=["auto", "fastsurfer", "synthstrip", "deepbet", "morphology"])
     r.add_argument("--iso-mm", type=float, default=0.5)
     r.add_argument("--surface", default="pial", choices=["pial", "envelope"],
                    dest="surface_mode")

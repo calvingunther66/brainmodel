@@ -99,8 +99,18 @@ mode, QC thresholds).
   [SynthStrip](https://surfer.nmr.mgh.harvard.edu/docs/synthstrip/) (works across
   T1/T2/FLAIR/CT with no tuning), then [deepbet](https://github.com/wwu-mmll/deepbet)
   (fast CPU T1 U-Net, used here), then a dependency-free morphology floor —
-  whichever is installed. The NIfTI affine is rebuilt from the DICOM direction
-  cosines so the learned models orient correctly.
+  whichever is installed. A [FastSurfer](https://deep-mi.org/research/fastsurfer/)
+  engine is also wired in (below). The NIfTI affine is rebuilt from the DICOM
+  direction cosines so the learned models orient correctly.
+* **FastSurfer path — anatomical parcellation.** With `FASTSURFER_HOME` set,
+  `--engine fastsurfer` runs FastSurfer's ASEGDKT CNN (seg-only, CPU, minutes)
+  for a topologically clean whole-brain segmentation. It's tighter to real brain
+  tissue than an envelope skull-strip (**1437 cc** vs deepbet's 1697 cc pial
+  envelope; Dice 0.92 between them — a free two-engine QC signal), and its DKT
+  cortical parcellation colors the surface by region
+  (`scripts/parcellate_surface.py`). Toggle **Parcellation (DKT)** in the viewer.
+
+  ![parcellated brain](out/render_parcellated.png)
 * **Automated QC gate.** Every run reports intracranial volume, connectivity,
   interior holes, and how well the mask boundary sits on a real image edge, and
   flags outliers — so a cohort runs unattended and only suspect cases need a look.
@@ -115,8 +125,9 @@ The skull-strip was verified against the source slices (mask contour in red):
 |------|------|
 | `viewer.html` (+ `vendor/`) | interactive three.js viewer (offline) |
 | `brain.glb` / `brain.stl` | pial brain surface — web / 3D-print |
+| `brain_parcellated.glb` | pial surface colored by FastSurfer DKT parcellation |
 | `skin.glb` / `skin.stl` | head-and-face surface — web / 3D-print |
-| `render_brain.png`, `render_head.png` | z-buffered multi-angle previews |
+| `render_brain.png`, `render_head.png`, `render_parcellated.png` | z-buffered multi-angle previews |
 | `viewer_*.png` | viewer screenshots |
 | `slices_overlay.png` | skull-strip QC overlay on the MRI |
 | `manifest.json` | run metadata + QC metrics |
@@ -137,7 +148,13 @@ pip install torch deepbet                       # learned skull-strip (CPU wheel
 python3 scripts/build_volume.py                 # (legacy helper) -> data/volume_raw.npy
 python -m brainmodel run data/dicom_staging/SER2 -o out/   # full pipeline
 node    scripts/shoot.mjs                        # -> out/*.png viewer renders
-python3 tests/... ; pytest                       # run the test suite
+pytest                                           # run the test suite
+
+# FastSurfer path (optional): clone Deep-MI/FastSurfer, download VINN checkpoints,
+#   set FASTSURFER_HOME, then:
+python -m brainmodel run data/dicom_staging/SER2 -o out/ --engine fastsurfer
+python3 scripts/parcellate_surface.py $SUBJECT_DIR \
+        $FASTSURFER_HOME/FastSurferCNN/config/FreeSurferColorLUT.txt out/brain_parcellated
 ```
 
 The raw DICOM data and reconstructed volumes live under `data/`, which is
@@ -147,9 +164,11 @@ committed.
 
 ## Roadmap
 
-[`docs/REVIEW_AND_PLAN.md`](docs/REVIEW_AND_PLAN.md) tracks the plan. Delivered so
-far: 0.5 mm isotropic meshing, intensity iso-surface (folds), N4 correction,
-pluggable contrast-agnostic engine, automated QC gate, config-driven CLI, tests.
-Next up for full topological perfection: a FastSurfer path (true `?h.pial` /
-`?h.white` surfaces with parcellation) and a public-dataset Dice/Hausdorff
+[`docs/REVIEW_AND_PLAN.md`](docs/REVIEW_AND_PLAN.md) tracks the plan. Delivered:
+0.5 mm isotropic meshing, intensity iso-surface (folds), N4 correction, pluggable
+contrast-agnostic engine, automated QC gate, config-driven CLI, tests, and the
+**FastSurfer path** — ASEGDKT segmentation (accurate brain mask + two-engine QC
+agreement) and a DKT-parcellation-colored cortex. Still open for full topological
+perfection: FastSurfer's `recon-surf` for true `?h.pial` / `?h.white` surfaces
+(needs a FreeSurfer license + GPU/hours), and a public-dataset Dice/Hausdorff
 benchmark.

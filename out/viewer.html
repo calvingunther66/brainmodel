@@ -28,6 +28,9 @@
   <div class="row"><span class="sw" style="background:#d8b9c0"></span>
     <label for="brain">Brain surface</label>
     <input type="checkbox" id="brain" checked></div>
+  <div class="row"><span class="sw" style="background:linear-gradient(90deg,#3b6,#e63,#59f)"></span>
+    <label for="parc">Parcellation (DKT)</label>
+    <input type="checkbox" id="parc"></div>
   <div class="row"><span class="sw" style="background:#e6c8a8"></span>
     <label for="skin">Head / skin</label>
     <input type="checkbox" id="skin"></div>
@@ -75,6 +78,8 @@ camera.add(head1); camera.add(head2);
 const materials = {
   brain: new THREE.MeshStandardMaterial({ color: 0xd8b9c0, roughness: 0.75, metalness: 0.0,
     side: THREE.DoubleSide, flatShading: false }),
+  parc:  new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.0,
+    side: THREE.DoubleSide, flatShading: false }),
   skin:  new THREE.MeshStandardMaterial({ color: 0xe6c8a8, roughness: 0.9, metalness: 0.0,
     side: THREE.DoubleSide, transparent: true, opacity: 0.35, depthWrite: false })
 };
@@ -92,10 +97,14 @@ function add(name, file) {
   });
 }
 add('brain', 'brain.glb');
+add('parc', 'brain_parcellated.glb');   // FastSurfer DKT-parcellation-colored cortex
 add('skin', 'skin.glb');
 
 function meshesVisibility() {
-  if (meshes.brain) meshes.brain.visible = document.getElementById('brain').checked;
+  // parcellation replaces the plain brain when on
+  const parcOn = document.getElementById('parc').checked;
+  if (meshes.parc)  meshes.parc.visible  = parcOn;
+  if (meshes.brain) meshes.brain.visible = document.getElementById('brain').checked && !parcOn;
   if (meshes.skin)  meshes.skin.visible  = document.getElementById('skin').checked;
 }
 
@@ -112,6 +121,7 @@ function frame() {
 }
 
 document.getElementById('brain').onchange = meshesVisibility;
+document.getElementById('parc').onchange = meshesVisibility;
 document.getElementById('skin').onchange = meshesVisibility;
 document.getElementById('op').oninput = e => { materials.skin.opacity = e.target.value/100; };
 document.getElementById('spin').onchange = e => { controls.autoRotate = e.target.checked; };

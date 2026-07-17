@@ -112,6 +112,15 @@ def test_engine_dispatch_falls_back():
     assert "morphology" in name
 
 
+def test_fastsurfer_engine_registered_and_gated(monkeypatch):
+    # FastSurfer is a first-class engine but only "available" when configured.
+    assert "fastsurfer" in extract._ENGINES
+    monkeypatch.delenv("FASTSURFER_HOME", raising=False)
+    assert extract.fastsurfer_available() is False
+    monkeypatch.setenv("FASTSURFER_HOME", "/nonexistent")
+    assert extract.fastsurfer_available() is False   # env set but no run_prediction.py
+
+
 @pytest.mark.slow
 def test_end_to_end_reconstruction(tmp_path):
     import nibabel as nib
