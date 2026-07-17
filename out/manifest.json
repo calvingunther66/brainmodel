@@ -1,0 +1,26 @@
+{
+  "input": {
+    "source": "dicom",
+    "selected_series": "SAG 3D T1 MP-RAGE",
+    "series_number": 2,
+    "n_slices": 208,
+    "auto_selected": true
+  },
+  "iso_mm": 0.5,
+  "bias_correction": "N4",
+  "engine": "deepbet",
+  "surface": { "mode": "pial", "iso_level": 0.6 },
+  "qc": {
+    "passed": true,
+    "metrics": {
+      "intracranial_volume_cc": 1696.5,
+      "connected_components": 1,
+      "no_interior_holes": true,
+      "boundary_edge_overlap": 1.0
+    }
+  },
+  "meshes": {
+    "brain": { "verts": 298982, "faces": 600000, "note": "pial iso-surface, decimated for web/print" },
+    "skin":  { "verts": 98815,  "faces": 200000 }
+  }
+}

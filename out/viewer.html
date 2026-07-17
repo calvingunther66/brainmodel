@@ -24,7 +24,7 @@
 <div id="app"></div>
 <div id="panel">
   <h1>3D Brain Model</h1>
-  <p class="sub">Reconstructed from SAG 3D T1 MP-RAGE · 208 slices · 1&nbsp;mm iso</p>
+  <p class="sub">SAG 3D T1 MP-RAGE · 208 slices · 0.5&nbsp;mm iso · pial iso-surface</p>
   <div class="row"><span class="sw" style="background:#d8b9c0"></span>
     <label for="brain">Brain surface</label>
     <input type="checkbox" id="brain" checked></div>
@@ -120,6 +120,17 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
+// expose camera/controls so the headless shooter can pick angles
+window.__viewer = { camera, controls, THREE, frame,
+  orbit(az, el, dist) {
+    const t = controls.target, r = dist || camera.position.distanceTo(t);
+    const a = az * Math.PI / 180, e = el * Math.PI / 180;
+    camera.position.set(
+      t.x + r * Math.cos(e) * Math.sin(a),
+      t.y + r * Math.sin(e),
+      t.z + r * Math.cos(e) * Math.cos(a));
+    camera.lookAt(t); controls.update();
+  } };
 (function loop(){ requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
 </script>
 </body>
